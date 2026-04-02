@@ -797,27 +797,70 @@ class RentRollAgent:
         return {"ok":True,"msg":f"{len(units)} units · {len(eff)} occupied · avg ${avg:,.0f}"}
 
     def _write_template(self, units, rent_roll_date):
-        wb = load_workbook(TEMPLATE_PATH)
+        # keep_links=False strips the external link cache that causes Excel repair errors
+        wb = load_workbook(TEMPLATE_PATH, keep_links=False)
         ws = wb["Rent Roll"]
-        try: ws["G5"] = datetime.strptime(rent_roll_date, "%Y-%m-%d")
+
+        # ONLY write to the 9 permitted columns:
+        # C=3  Unit No        D=4  Unit Type       H=8  Size
+        # I=9  Move-in date   J=10 Lease start     K=11 Lease end
+        # N=14 Resident Name  O=15 Market Rent      Q=17 Effective Rent
+        # All other columns (formulas, summaries, etc.) are left completely untouched.
+
+        # Set Rent Roll date in G5 (col 7) — the one non-data cell we must fill
+        try: ws.cell(5, 7).value = datetime.strptime(rent_roll_date, "%Y-%m-%d")
         except: pass
+
+        ALLOWED_COLS = {3, 4, 8, 9, 10, 11, 14, 15, 17}  # C D H I J K N O Q
+
         for idx, u in enumerate(units):
             r = 9 + idx
             if r > 620: break
+
+            # C — Unit No
             ws.cell(r, 3).value = u.get("unit_no")
+
+            # D — Unit Type
             ws.cell(r, 4).value = u.get("unit_type") or ""
+
+            # H — Size (sqft)
             sqft = u.get("sqft")
-            if sqft: ws.cell(r, 8).value = int(sqft)
-            for col, field in [(9,"move_in"),(10,"lease_start"),(11,"lease_end")]:
+            if sqft:
+                ws.cell(r, 8).value = int(sqft)
+
+            # I J K — Move-in, Lease Start, Lease End (stored as dates so Excel formats them)
+            for col, field in [(9,"move_in"), (10,"lease_start"), (11,"lease_end")]:
                 v = u.get(field)
                 if v:
-                    try: ws.cell(r,col).value = datetime.strptime(v, "%m-%d-%Y")
+                    try: ws.cell(r, col).value = datetime.strptime(v, "%m-%d-%Y")
                     except: pass
-            ws.cell(r,14).value = u.get("resident_name") or ""
+
+            # N — Resident Name
+            # For vacant/model/down units: show the status label, not blank
+            name = u.get("resident_name") or ""
+            status = u.get("status") or ""
+            if not name:
+                # Derive a label from status (e.g. "Vacant", "Model", "Down")
+                sl = status.lower()
+                if "model" in sl:
+                    name = "Model"
+                elif "down" in sl or "offline" in sl:
+                    name = "Down"
+                elif not u.get("effective_rent"):
+                    name = "Vacant"
+            ws.cell(r, 14).value = name
+
+            # O — Market Rent (no decimals)
             mkt = u.get("market_rent")
-            if mkt: ws.cell(r,15).value = round(mkt)
+            if mkt:
+                ws.cell(r, 15).value = round(mkt)
+
+            # Q — Effective Rent (blank if zero/none, no decimals)
             eff = u.get("effective_rent")
-            if eff: ws.cell(r,17).value = round(eff)
+            if eff and eff > 0:
+                ws.cell(r, 17).value = round(eff)
+            # else leave blank — formula cells below row 9 remain untouched
+
         out = io.BytesIO()
         wb.save(out)
         out.seek(0)
