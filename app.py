@@ -45,7 +45,7 @@ TEMPLATE_PATH = "Rent_Roll_template.xlsx"
 # ─── Rent charge-code patterns ───────────────────────────────────────────────
 RENT_INCLUDE = [
     r"^rent$", r"^rnt$", r"^base$", r"^contract$", r"^net$",
-    r"^hap$", r"^sec8$", r"^s8$", r"^hud$",
+    r"^hap$", r"^sec8$", r"^s8$", r"^hud$", r"^rnta$",
     r"^subsidy$", r"^sub$", r"^ttp$", r"^tenant$", r"^tr$",
     r"^lihtc$", r"^credit$", r"^bmr$", r"^aff$", r"^usda$", r"^rd$",
     r"^rentmkt$", r"^stl$",
