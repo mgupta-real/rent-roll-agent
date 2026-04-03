@@ -44,17 +44,79 @@ TEMPLATE_PATH = "Rent_Roll_template.xlsx"
 
 # ─── Rent charge-code patterns ───────────────────────────────────────────────
 RENT_INCLUDE = [
-    r"^rent$", r"^rnt$", r"^base$", r"^contract$", r"^net$",
-    r"^hap$", r"^sec8$", r"^s8$", r"^hud$", r"^rnta$",
-    r"^subsidy$", r"^sub$", r"^ttp$", r"^tenant$", r"^tr$",
-    r"^lihtc$", r"^credit$", r"^bmr$", r"^aff$", r"^usda$", r"^rd$",
-    r"^rentmkt$", r"^stl$",
-    r"\brent\b", r"\blease rent\b", r"\bbase rent\b",
-    r"\bcontract rent\b", r"\bhud\b", r"\bhap\b",
-    r"^rent-", r"^hudr",
+    # ── Exact abbreviations ──────────────────────────────────────────────────
+    r"^rent$",        # RENT
+    r"^rnt$",         # RNT
+    r"^rnta$",        # RNTA
+    r"^rntb$",        # RNTB  (unit-type variant)
+    r"^rntm$",        # RNTM  (market rent variant)
+    r"^base$",        # BASE
+    r"^brt$",         # BRT   (base rent)
+    r"^br$",          # BR    (base rent short)
+    r"^contract$",    # CONTRACT
+    r"^crt$",         # CRT   (contract rent)
+    r"^net$",         # NET
+    r"^nr$",          # NR    (net rent)
+    r"^hap$",         # HAP   (Housing Assistance Payment)
+    r"^hapr$",        # HAPR  (HAP rent)
+    r"^sec8$",        # SEC8
+    r"^s8$",          # S8
+    r"^s8r$",         # S8R
+    r"^hud$",         # HUD
+    r"^hudr$",        # HUDR
+    r"^hudrnt$",      # HUDRNT
+    r"^subsidy$",     # SUBSIDY
+    r"^sub$",         # SUB
+    r"^subs$",        # SUBS
+    r"^ttp$",         # TTP   (Total Tenant Payment)
+    r"^tenant$",      # TENANT
+    r"^tr$",          # TR    (tenant rent)
+    r"^tp$",          # TP    (tenant portion)
+    r"^lihtc$",       # LIHTC (Low Income Housing Tax Credit)
+    r"^tc$",          # TC    (tax credit)
+    r"^credit$",      # CREDIT
+    r"^bmr$",         # BMR   (Below Market Rate)
+    r"^aff$",         # AFF   (Affordable)
+    r"^usda$",        # USDA
+    r"^rd$",          # RD    (Rural Development)
+    r"^stl$",         # STL   (subsidized tenant lease)
+    r"^rentmkt$",     # RENTMKT (Yardi market rent code)
+    r"^mkt$",         # MKT
+    r"^gr$",          # GR    (gross rent)
+    r"^grs$",         # GRS
+    r"^lr$",          # LR    (lease rent)
+    r"^lrnt$",        # LRNT
+    r"^cr$",          # CR    (contract rent)
+    # ── Prefix patterns — catches "RENT-Rent", "HUDR-HUD Rent", etc. ────────
+    r"^rent[-_]",     # RENT- prefix
+    r"^hud[-_]",      # HUD-  prefix
+    r"^hap[-_]",      # HAP-  prefix
+    r"^s8[-_]",       # S8-   prefix
+    r"^sec[-_]?8",    # SEC8 / SEC-8
+    # ── Contains patterns — catches "Rent HUD", "County Rent", etc. ─────────
+    r"\brent\b",        # word "rent" anywhere
+    r"\blease\s*rent\b",
+    r"\bbase\s*rent\b",
+    r"\bcontract\s*rent\b",
+    r"\bmarket\s*rent\b",
+    r"\bnet\s*rent\b",
+    r"\bgross\s*rent\b",
+    r"\btenant\s*rent\b",
+    r"\btenant\s*portion\b",
+    r"\bhud\b",         # word "hud" anywhere  (catches "Rent HUD", "HUD Rent")
+    r"\bhap\b",         # word "hap" anywhere
+    r"\bsection\s*8\b",
+    r"\bsubsidy\b",
+    r"\bsubsidized\b",
+    r"\bhousing\s*assist",
+    r"\blihtc\b",
+    r"\btax\s*credit\b",
+    r"\baffordable\b",
+    r"\busda\b",
+    r"\brural\s*dev",
 ]
 RENT_EXCLUDE = [
-    r"pet", r"reno", r"park", r"garag", r"storag", r"trash", r"water", r"sewer",
+    r"pet", r"park", r"garag", r"storag", r"trash", r"water", r"sewer",
     r"electric", r"gas", r"internet", r"cable", r"utility", r"admin",
     r"pest", r"valet", r"amenity", r"concession", r"late\s*fee", r"nsf",
     r"real\s*estate\s*tax", r"pack", r"locker", r"waste",
@@ -81,13 +143,18 @@ def should_skip(status):
 
 def is_vacant(status, name):
     sl = str(status or "").lower()
-    nl = str(name or "").lower()
+    nl = str(name or "").lower().strip()
     for kw in VACAT_STATUS_KW:
         if kw in sl: return True
-    # Name-based: "-- vacant --", or name starts with "Model" or "Vacant" (system placeholders)
-    if nl in ("-- vacant --", "vacant"):
+    # Name-based placeholder detection
+    if nl in ("-- vacant --", "vacant", "-"):
         return True
-    if re.match(r"^(model|vacant)\s", nl):   # e.g. "Model R00000008" but NOT "Model, Model"
+    # "Model R00000008" — starts with "model " (space after)
+    if re.match(r"^(model|vacant)\s", nl):
+        return True
+    # "MODEL, MODEL" or "Model, Model" — all tokens are the same placeholder word
+    name_words = re.split(r"[\s,]+", nl)
+    if name_words and all(w in ("model","vacant","down") for w in name_words if w):
         return True
     return False
 
@@ -504,6 +571,8 @@ class AppFolioParser:
             r0 = str(row[0] or "").strip()
             # Section header: single populated cell that is not a unit number
             if r0 and all(row[j] is None for j in range(1, min(6, len(row)))):
+                if "future" in r0.lower():
+                    break   # Stop at "Future Resident Details" / "Future Residents" section
                 if not re.match(r"^\d", r0) and "total" not in r0.lower():
                     current_type = clean_type(r0)
                     continue
@@ -523,7 +592,8 @@ class AppFolioParser:
 
             uvs = str(uv).strip()
             if not uvs or uvs.lower() in ["unit","bldg-unit","none","nan"]: continue
-            if any(kw in uvs.lower() for kw in ["future residents","future resident"]): break
+            if any(kw in uvs.lower() for kw in ["future residents","future resident",
+                                                        "future resident details"]): break
             # Skip section subtotals like "Auburn Total:" - only stop on grand/property totals
             if re.match(r"^(grand total|property total|total units|total$)", uvs.lower()): break
             if uvs.lower() in ["total","summary","subtotal"]: break
@@ -797,74 +867,119 @@ class RentRollAgent:
         return {"ok":True,"msg":f"{len(units)} units · {len(eff)} occupied · avg ${avg:,.0f}"}
 
     def _write_template(self, units, rent_roll_date):
-        # keep_links=False strips the external link cache that causes Excel repair errors
-        wb = load_workbook(TEMPLATE_PATH, keep_links=False)
-        ws = wb["Rent Roll"]
+        """
+        Write data directly into the template XML without openpyxl touching formulas.
+        Only modifies columns C D H I J K N O Q (and G5 for the date).
+        All formula columns, array formulas, and the file structure are preserved bit-for-bit.
+        """
+        import zipfile as _zf, re as _re, io as _io
+        from datetime import date as _date
 
-        # ONLY write to the 9 permitted columns:
-        # C=3  Unit No        D=4  Unit Type       H=8  Size
-        # I=9  Move-in date   J=10 Lease start     K=11 Lease end
-        # N=14 Resident Name  O=15 Market Rent      Q=17 Effective Rent
-        # All other columns (formulas, summaries, etc.) are left completely untouched.
+        def _serial(dt):
+            if isinstance(dt, datetime): dt = dt.date()
+            return (dt - _date(1899, 12, 30)).days
 
-        # Set Rent Roll date in G5 (col 7) — the one non-data cell we must fill
-        try: ws.cell(5, 7).value = datetime.strptime(rent_roll_date, "%Y-%m-%d")
-        except: pass
+        def _esc(s):
+            return str(s).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
 
-        ALLOWED_COLS = {3, 4, 8, 9, 10, 11, 14, 15, 17}  # C D H I J K N O Q
+        # Column metadata — only these 9 data cols + G5 are ever touched
+        COL_LTR   = {3:"C",4:"D",7:"G",8:"H",9:"I",10:"J",11:"K",14:"N",15:"O",17:"Q"}
+        DATE_COLS = {7,9,10,11}
+        STR_COLS  = {3,4,14}
+        COL_STY   = {3:46,4:46,7:16,8:46,9:49,10:50,11:51,14:53,15:54,17:46}
 
-        for idx, u in enumerate(units):
-            r = 9 + idx
-            if r > 620: break
+        def _cell(col, row, value):
+            ref   = f"{COL_LTR[col]}{row}"
+            style = COL_STY.get(col, 46)
+            if value is None or value == "":
+                return f'<c r="{ref}" s="{style}"/>'
+            if col in DATE_COLS:
+                s = _serial(value) if isinstance(value, (datetime, _date)) else int(value)
+                return f'<c r="{ref}" s="{style}"><v>{s}</v></c>'
+            elif col in STR_COLS:
+                return f'<c r="{ref}" s="{style}" t="inlineStr"><is><t>{_esc(str(value))}</t></is></c>'
+            else:
+                return f'<c r="{ref}" s="{style}"><v>{int(round(float(value)))}</v></c>'
+
+        def _replace(xml, col, row, value):
+            ref = f"{COL_LTR[col]}{row}"
+            new = _cell(col, row, value)
+            # Match self-closing OR element whose body does NOT start another <c> element
+            p_sc = rf'<c r="{_re.escape(ref)}"(?:\s[^>]*)*/>' 
+            p_ct = rf'<c r="{_re.escape(ref)}"(?:\s[^>]*)?>(?:(?!<c\s)[\s\S])*?</c>'
+            return _re.sub(rf'(?:{p_ct}|{p_sc})', lambda m: new, xml, count=1)
+
+        # Load template as raw zip bytes (preserves every formula, style, external-link-free)
+        with _zf.ZipFile(TEMPLATE_PATH, 'r') as z:
+            tpl = {name: z.read(name) for name in z.namelist()}
+
+        xml = tpl['xl/worksheets/sheet1.xml'].decode('utf-8')
+
+        # G5 — Rent Roll date
+        try:
+            xml = _replace(xml, 7, 5, datetime.strptime(rent_roll_date, "%Y-%m-%d"))
+        except Exception:
+            pass
+
+        DATA_START = 9
+        seen_units = set()   # Deduplicate: first occurrence of each unit_no wins
+        write_idx  = 0       # Separate counter so duplicates don't consume a row slot
+        for u in units:
+            if write_idx >= (620 - DATA_START + 1):
+                break
+            unit_key = str(u.get("unit_no") or "").strip()
+            if unit_key and unit_key in seen_units:
+                continue    # Skip duplicate unit — future-tenant re-entry for same unit
+            if unit_key:
+                seen_units.add(unit_key)
+            r = DATA_START + write_idx
+            write_idx += 1
 
             # C — Unit No
-            ws.cell(r, 3).value = u.get("unit_no")
+            xml = _replace(xml, 3, r, u.get("unit_no"))
 
             # D — Unit Type
-            ws.cell(r, 4).value = u.get("unit_type") or ""
+            xml = _replace(xml, 4, r, u.get("unit_type") or "")
 
             # H — Size (sqft)
             sqft = u.get("sqft")
-            if sqft:
-                ws.cell(r, 8).value = int(sqft)
+            xml = _replace(xml, 8, r, int(sqft) if sqft else None)
 
-            # I J K — Move-in, Lease Start, Lease End (stored as dates so Excel formats them)
-            for col, field in [(9,"move_in"), (10,"lease_start"), (11,"lease_end")]:
+            # I J K — Move-in, Lease Start, Lease End
+            for col, field in [(9,"move_in"),(10,"lease_start"),(11,"lease_end")]:
                 v = u.get(field)
+                dt = None
                 if v:
-                    try: ws.cell(r, col).value = datetime.strptime(v, "%m-%d-%Y")
-                    except: pass
+                    try: dt = datetime.strptime(v, "%m-%d-%Y")
+                    except Exception: pass
+                xml = _replace(xml, col, r, dt)
 
-            # N — Resident Name
-            # For vacant/model/down units: show the status label, not blank
-            name = u.get("resident_name") or ""
-            status = u.get("status") or ""
+            # N — Resident Name (vacant/model/down units get a label, never blank)
+            name   = u.get("resident_name") or ""
+            status = str(u.get("status") or "").lower()
             if not name:
-                # Derive a label from status (e.g. "Vacant", "Model", "Down")
-                sl = status.lower()
-                if "model" in sl:
-                    name = "Model"
-                elif "down" in sl or "offline" in sl:
-                    name = "Down"
-                elif not u.get("effective_rent"):
-                    name = "Vacant"
-            ws.cell(r, 14).value = name
+                if "model"   in status: name = "Model"
+                elif "down"  in status or "offline" in status: name = "Down"
+                else: name = "Vacant"
+            xml = _replace(xml, 14, r, name)
 
-            # O — Market Rent (no decimals)
+            # O — Market Rent
             mkt = u.get("market_rent")
-            if mkt:
-                ws.cell(r, 15).value = round(mkt)
+            xml = _replace(xml, 15, r, round(mkt) if mkt else None)
 
-            # Q — Effective Rent (blank if zero/none, no decimals)
+            # Q — Effective Rent (blank if zero/none)
             eff = u.get("effective_rent")
-            if eff and eff > 0:
-                ws.cell(r, 17).value = round(eff)
-            # else leave blank — formula cells below row 9 remain untouched
+            xml = _replace(xml, 17, r, round(eff) if (eff and eff > 0) else None)
 
-        out = io.BytesIO()
-        wb.save(out)
+        tpl['xl/worksheets/sheet1.xml'] = xml.encode('utf-8')
+
+        out = _io.BytesIO()
+        with _zf.ZipFile(out, 'w', _zf.ZIP_DEFLATED) as zout:
+            for name, data in tpl.items():
+                zout.writestr(name, data)
         out.seek(0)
         return out.read()
+
 
     def run(self, raw_bytes, filename, rent_roll_date):
         self.log("step", f"🚀 Agent started — {filename}")
