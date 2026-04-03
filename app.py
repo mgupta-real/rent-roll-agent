@@ -1086,7 +1086,37 @@ class RentRollAgent:
         wb_xml = tpl['xl/workbook.xml'].decode('utf-8')
         wb_xml = wb_xml.replace('calcMode="manual"', 'calcMode="auto"')
         wb_xml = wb_xml.replace("calcMode='manual'", 'calcMode="auto"')
+
+        # Strip the 2700+ junk definedNames inherited from old financial models.
+        # They cause Excel to attempt broken cross-workbook lookups on open, which
+        # triggers repair mode and prevents automatic recalculation.
+        # Keep ONLY _xlnm._FilterDatabase (the autofilter range for the sheet).
+        import re as _re3
+        # Extract the one name we need
+        _keep = _re3.findall(
+            r'<definedName[^>]+_xlnm\._FilterDatabase[^>]*>[^<]*</definedName>',
+            wb_xml
+        )
+        # Replace the entire <definedNames>...</definedNames> block
+        _kept_block = '<definedNames>' + ''.join(_keep) + '</definedNames>'
+        wb_xml = _re3.sub(
+            r'<definedNames>(?:(?!<definedNames>)[\s\S])*?</definedNames>',
+            _kept_block,
+            wb_xml,
+            count=1
+        )
         tpl['xl/workbook.xml'] = wb_xml.encode('utf-8')
+
+        # Remove stale calcChain.xml so Excel rebuilds it fresh on open.
+        # A stale chain makes Excel skip recalculation even with calcMode="auto".
+        tpl.pop('xl/calcChain.xml', None)
+        if '[Content_Types].xml' in tpl:
+            _ct = tpl['[Content_Types].xml'].decode('utf-8')
+            _ct = _ct.replace(
+                '<Override PartName="/xl/calcChain.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.calcChain+xml"/>',
+                ''
+            )
+            tpl['[Content_Types].xml'] = _ct.encode('utf-8')
 
         out = _io.BytesIO()
         with _zf.ZipFile(out, 'w', _zf.ZIP_DEFLATED) as zout:
