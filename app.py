@@ -89,7 +89,8 @@ RENT_INCLUDE = [
     r"^cr$",          # CR    (contract rent)
     # ── Prefix patterns — catches "RENT-Rent", "HUDR-HUD Rent", etc. ────────
     r"^rent[-_]",     # RENT- prefix
-    r"^rent:",        # RENT: prefix
+    r"^rent:",         # RENT: prefix
+
     r"^hud[-_]",      # HUD-  prefix
     r"^hap[-_]",      # HAP-  prefix
     r"^s8[-_]",       # S8-   prefix
@@ -696,6 +697,111 @@ class RentManagerParser:
         return units
 
 
+class ResProParser:
+    """
+    ResProp Management / Entrata-style format.
+    Single sheet named 'Sheet'. Header at row 9.
+    Cols: A=unit, C=type, E=sqft, F=name, K=status, M=market_rent,
+          T=charge_desc, W=charge_amount, Z=move_in, AB=lease_start, AC=lease_end.
+    Charge rows: only T and W populated (A-M all None).
+    Vacant units identified by name='Vacant Unit' or empty status.
+    Stop parsing at 'Total Charges' summary row.
+    """
+    name = "ResProp/Entrata"
+
+    def can_handle(self, rows, fname):
+        # Detect: single sheet named Sheet, header at row 9 has "Sq. Feet" and "Ledger"
+        # and data rows have description in col 19 and amount in col 22
+        for row in rows[8:12]:
+            rs = " ".join(str(v or "").lower() for v in row)
+            if "sq. feet" in rs and "ledger" in rs and "description" in rs:
+                return True
+        # Also detect by title rows: "ResProp" or "Rent Roll" with date format
+        for row in rows[:7]:
+            rs = " ".join(str(v or "") for v in row)
+            if "ResProp" in rs or "Rent Roll" in rs:
+                for r2 in rows[:7]:
+                    for v in r2:
+                        if v and "sq. feet" in str(v).lower():
+                            return True
+        return False
+
+    def extract(self, rows):
+        units   = []
+        current = None
+
+        def finalize():
+            if current:
+                if current.get("_vacant"):
+                    current["effective_rent"] = None
+                elif current.get("_charge_sum", 0) > 0:
+                    current["effective_rent"] = current["_charge_sum"]
+                current.pop("_charge_sum", None)
+                current.pop("_vacant", None)
+                units.append(current)
+
+        for i, row in enumerate(rows):
+            r0 = str(row[0] or "").strip()
+
+            # Stop at summary section
+            if r0 in ("Total Charges", "Description") or r0.startswith("Amenity Fees"):
+                break
+
+            # Unit row: col 0 has unit number, col 5 has resident name OR "Vacant Unit"
+            is_unit = (
+                row[0] is not None and
+                (row[5] is not None or str(row[0]).strip().isdigit() or
+                 re.match(r"^\d", str(row[0]).strip()))
+                and row[2] is not None   # type must be present
+            )
+
+            if is_unit:
+                finalize()
+                name   = str(row[5] or "").strip()
+                status = str(row[10] or "").strip()
+                vacat  = is_vacant(status, name)
+
+                if should_skip(status):
+                    current = None
+                    continue
+
+                # Inline charge on unit row
+                cc = str(row[19] or "").strip()
+                ca = to_num(row[22])
+
+                current = {
+                    "unit_no":       r0,
+                    "unit_type":     clean_type(str(row[2] or "")),
+                    "sqft":          to_num(row[4]),
+                    "status":        status,
+                    "resident_name": name if not vacat else "",
+                    "move_in":       fmt_date(row[26]),
+                    "lease_start":   fmt_date(row[28]),
+                    "lease_end":     fmt_date(row[29]),
+                    "market_rent":   to_num(row[12]),
+                    "effective_rent": None,
+                    "_charge_sum":   0,
+                    "_vacant":       vacat,
+                    "building":      None,
+                }
+                if cc and ca and is_rent_code(cc):
+                    current["_charge_sum"] += ca or 0
+
+            elif row[0] is None and row[19]:
+                # Charge or total row
+                if current is None:
+                    continue
+                desc = str(row[19]).strip()
+                if desc.lower() == "total":
+                    continue   # separator row, skip
+                ca = to_num(row[22])
+                if ca and is_rent_code(desc):
+                    current["_charge_sum"] += ca or 0
+
+        finalize()
+        return units
+
+
 class AIFallbackParser:
     """Uses Claude to map any unknown format, then generic extraction."""
     name = "AI (Claude)"
@@ -839,6 +945,7 @@ class RentRollAgent:
         RentManagerParser(),
         MRIParser(),
         AppFolioParser(),
+        ResProParser(),
         YardiParser(),
     ]
 
@@ -973,6 +1080,13 @@ class RentRollAgent:
             xml = _replace(xml, 17, r, round(eff) if (eff and eff > 0) else None)
 
         tpl['xl/worksheets/sheet1.xml'] = xml.encode('utf-8')
+
+        # Force calculation mode to automatic so formulas recalculate on open
+        import re as _re2
+        wb_xml = tpl['xl/workbook.xml'].decode('utf-8')
+        wb_xml = wb_xml.replace('calcMode="manual"', 'calcMode="auto"')
+        wb_xml = wb_xml.replace("calcMode='manual'", 'calcMode="auto"')
+        tpl['xl/workbook.xml'] = wb_xml.encode('utf-8')
 
         out = _io.BytesIO()
         with _zf.ZipFile(out, 'w', _zf.ZIP_DEFLATED) as zout:
