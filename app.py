@@ -1218,7 +1218,7 @@ def main():
 
     with st.sidebar:
         st.header("⚙️ Settings")
-        rr_date_val = st.date_input("Rent Roll As-Of Date", value=None, help="Auto-read from file. Set manually only if needed.") rr_date = rr_date_val.strftime("%Y-%m-%d") if rr_date_val else datetime.today().strftime("%Y-%m-%d")
+        rr_date = st.date_input("Rent Roll As-Of Date", value=datetime.today()).strftime("%Y-%m-%d")
         st.divider()
         st.markdown("**Built-in parsers**")
         for n in ["Yardi Voyager/Breeze","RealPage OneSite","MRI Living","AppFolio","Rent Manager"]:
