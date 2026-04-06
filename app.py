@@ -1185,9 +1185,9 @@ class RentRollAgent:
             # Scan first 6 rows of raw file for a date to use in G5
             extracted_date = None
             for row in rows[:6]:
-                for v in row:
-                    if v is None: continue
-                    s = str(v).strip()
+                for _v in row:
+                    if _v is None: continue
+                    s = str(_v).strip()
                     for fmt in ["%m/%d/%Y", "%Y-%m-%d", "%m-%d-%Y", "%m/%d/%y"]:
                         try:
                             extracted_date = datetime.strptime(s[:10], fmt).strftime("%Y-%m-%d")
