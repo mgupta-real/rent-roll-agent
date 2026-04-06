@@ -1195,8 +1195,8 @@ class RentRollAgent:
                         except: pass
                     if not extracted_date:
                         import re as _re_date
-                        m_date = _re_date.search(r'(\d{1,2}/\d{1,2}/\d{4})', s)
-                        if m_date:
+                        _dm = _re_date.search(r'(\d{1,2}/\d{1,2}/\d{4})', s)
+                        if _dm:
                             try:
                                 extracted_date = datetime.strptime(m_date.group(1), "%m/%d/%Y").strftime("%Y-%m-%d")
                             except: pass
