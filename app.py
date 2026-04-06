@@ -1182,7 +1182,28 @@ class RentRollAgent:
 
         # Write template
         try:
-            out_bytes = self._write_template(units, rent_roll_date)
+            # Scan first 6 rows of raw file for a date to use in G5
+            extracted_date = None
+            for row in rows[:6]:
+                for v in row:
+                    if v is None: continue
+                    s = str(v).strip()
+                    for fmt in ["%m/%d/%Y", "%Y-%m-%d", "%m-%d-%Y", "%m/%d/%y"]:
+                        try:
+                            extracted_date = datetime.strptime(s[:10], fmt).strftime("%Y-%m-%d")
+                            break
+                        except: pass
+                    if not extracted_date:
+                        import re as _re_date
+                        m_date = _re_date.search(r'(\d{1,2}/\d{1,2}/\d{4})', s)
+                        if m_date:
+                            try:
+                                extracted_date = datetime.strptime(m_date.group(1), "%m/%d/%Y").strftime("%Y-%m-%d")
+                            except: pass
+                    if extracted_date: break
+                if extracted_date: break
+            final_date = extracted_date or rent_roll_date
+            out_bytes = self._write_template(units, final_date)
             self.log("ok", "📥 Template populated successfully")
         except Exception as e:
             return {"ok":False,"error":f"Template write failed: {e}"}
