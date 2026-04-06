@@ -89,7 +89,7 @@ RENT_INCLUDE = [
     r"^cr$",          # CR    (contract rent)
     # ── Prefix patterns — catches "RENT-Rent", "HUDR-HUD Rent", etc. ────────
     r"^rent[-_]",     # RENT- prefix
-    r"^rent:",         # RENT: prefix
+    r"^rent:",        # RENT: prefix
     r"^hud[-_]",      # HUD-  prefix
     r"^hap[-_]",      # HAP-  prefix
     r"^s8[-_]",       # S8-   prefix
@@ -262,7 +262,7 @@ class YardiParser:
             r1_val = row[1] if len(row) > 1 else None
             r1_str = str(r1_val or "").strip()
             if r1_str == "details" or r1_str == "\nUnit" or (
-                r1_val is None and len(row) > 36 and row[36] and 
+                r1_val is None and len(row) > 36 and row[36] and
                 "trans" in str(row[36]).lower()
             ):
                 # Mid-file section divider - skip but keep accumulating for current unit
@@ -1012,7 +1012,7 @@ class RentRollAgent:
             ref = f"{COL_LTR[col]}{row}"
             new = _cell(col, row, value)
             # Match self-closing OR element whose body does NOT start another <c> element
-            p_sc = rf'<c r="{_re.escape(ref)}"(?:\s[^>]*)*/>' 
+            p_sc = rf'<c r="{_re.escape(ref)}"(?:\s[^>]*)*/>'
             p_ct = rf'<c r="{_re.escape(ref)}"(?:\s[^>]*)?>(?:(?!<c\s)[\s\S])*?</c>'
             return _re.sub(rf'(?:{p_ct}|{p_sc})', lambda m: new, xml, count=1)
 
@@ -1081,7 +1081,6 @@ class RentRollAgent:
         tpl['xl/worksheets/sheet1.xml'] = xml.encode('utf-8')
 
         # Force calculation mode to automatic so formulas recalculate on open
-        import re as _re2
         wb_xml = tpl['xl/workbook.xml'].decode('utf-8')
         wb_xml = wb_xml.replace('calcMode="manual"', 'calcMode="auto"')
         wb_xml = wb_xml.replace("calcMode='manual'", 'calcMode="auto"')
@@ -1091,12 +1090,10 @@ class RentRollAgent:
         # triggers repair mode and prevents automatic recalculation.
         # Keep ONLY _xlnm._FilterDatabase (the autofilter range for the sheet).
         import re as _re3
-        # Extract the one name we need
         _keep = _re3.findall(
             r'<definedName[^>]+_xlnm\._FilterDatabase[^>]*>[^<]*</definedName>',
             wb_xml
         )
-        # Replace the entire <definedNames>...</definedNames> block
         _kept_block = '<definedNames>' + ''.join(_keep) + '</definedNames>'
         wb_xml = _re3.sub(
             r'<definedNames>(?:(?!<definedNames>)[\s\S])*?</definedNames>',
@@ -1218,7 +1215,8 @@ def main():
 
     with st.sidebar:
         st.header("⚙️ Settings")
-        rr_date = st.date_input("Rent Roll As-Of Date", value=datetime.today()).strftime("%Y-%m-%d")
+        rr_date_val = st.date_input("Rent Roll As-Of Date", value=None, help="Auto-read from file. Set manually only if needed.")
+        rr_date = rr_date_val.strftime("%Y-%m-%d") if rr_date_val else datetime.today().strftime("%Y-%m-%d")
         st.divider()
         st.markdown("**Built-in parsers**")
         for n in ["Yardi Voyager/Breeze","RealPage OneSite","MRI Living","AppFolio","Rent Manager"]:
